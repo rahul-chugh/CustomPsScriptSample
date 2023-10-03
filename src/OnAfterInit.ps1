@@ -15,8 +15,7 @@ users log in.
 
 Write-Host "Main script finished running at $(Get-Date)."
 
-Write-Host $env:USERPROFILE
-Set-Location $env:USERPROFILE
+Set-Location "C:\Users\Administrator"
 [string] $workDirectory = "./AWS-workshop-assets"
 
 $sqlUsername = ((Get-SECSecretValue -SecretId "SQLServerRDSSecret").SecretString | ConvertFrom-Json).username
