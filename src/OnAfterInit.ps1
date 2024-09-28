@@ -35,4 +35,7 @@ $addElement.value = $connectionString
 
 $webConfigXml.Save($webConfigPath)
 
+$xml.configuration.connectionStrings.add.connectionString = $connectionString
+$xml.Save($webConfigPath)
+
 Write-Host "OnAfterInit script finished running at $(Get-Date)."
