@@ -59,4 +59,49 @@ $addElement.value = $connectionString
 
 $webConfigXml.Save($webConfigPath)
 
+# Bucket and folder path in S3
+$bucketName = "windows-dev-env-ec2"
+$folderPath = "artifacts/"
+
+# Get the directory where the PowerShell script file is located
+$localPath = Join-Path $PSScriptRoot "s3-artifacts"
+
+# Create local directory if it doesn't exist
+if (-not (Test-Path $localPath)) {
+    Write-Host "Creating local directory: $localPath"
+    New-Item -Path $localPath -ItemType Directory
+} else {
+    Write-Host "Local directory already exists: $localPath"
+}
+
+# Download files from S3
+aws s3 cp s3://$bucketName/$folderPath $localPath --recursive
+
+# Silent installation of the VSIX package
+$vsixFilePath = Join-Path $localPath "AWSToolkitPackage.vsix"
+
+if (Test-Path $vsixFilePath) {
+    # Path to Visual Studio 2022 VSIXInstaller.exe
+    $vsixInstallerPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VSIXInstaller.exe"
+    
+    # Check if VSIXInstaller.exe exists (adjust path if using a different version of Visual Studio)
+    if (Test-Path $vsixInstallerPath) {
+        # Run silent install of the VSIX package using Start-Process with logging
+        $arguments = @("$vsixFilePath", "/q")
+
+        Start-Process -FilePath $vsixInstallerPath -ArgumentList $arguments -Wait -NoNewWindow
+
+        # Check the installation result
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "VSIX package installed successfully."
+        } else {
+            Write-Host "VSIX package installation failed. Exit code: $LASTEXITCODE."
+        }
+    } else {
+        Write-Host "VSIXInstaller.exe not found. Please verify the Visual Studio installation path."
+    }
+} else {
+    Write-Host "VSIX package not found in the downloaded files."
+}
+
 Write-Host "OnAfterInit script finished running at $(Get-Date)."
