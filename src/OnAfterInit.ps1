@@ -50,23 +50,63 @@ if ($checkDbResult -eq "0") {
 [string] $connectionString = "Server=$SQLDatabaseEndpointTrimmed;Database=$databaseName;User Id=$sqlUsername;Password=$sqlPassword;"
 
 [string] $webConfigFolder = "$workDirectory\bobs-used-bookstore-classic\app\Bookstore.Web\"
-$webConfigPath = Join-Path $webConfigFolder "Web.config"
-
+$webConfigPath = Join-Path $webConfigFolder "Web.config
 $webConfigXml = [xml](Get-Content -Path $webConfigPath)
-
-$addElement = $webConfigXml.configuration.appSettings.add | Where-Object { $_.key -eq "ConnectionStrings/BookstoreDatabaseConnection" }
-$addElement.value = $connectionString
-
+$webConfigXml.configuration.connectionStrings.add.connectionString = $connectionString
 $webConfigXml.Save($webConfigPath)
 
-# Bucket and folder path in S3
+$vsixInstallerPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VSIXInstaller.exe"
+$vsExtensionPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\Extensions"
+$targetPublisher = 'Amazon Web Services'
+
+$manifestFiles = Get-ChildItem -Path $vsExtensionPath -Recurse -Filter "extension.vsixmanifest"
+
+$filteredExtensionsList = @()
+
+foreach ($manifestFile in $manifestFiles) {
+    try {
+        [xml]$xmlContent = Get-Content $manifestFile.FullName
+        
+        $publisher = $xmlContent.PackageManifest.Metadata.Identity.Publisher
+        $displayNameNode = $xmlContent.PackageManifest.Metadata.DisplayName
+        $identifier = $xmlContent.PackageManifest.Metadata.Identity.Id
+        
+        if ($publisher -eq $targetPublisher) {
+            $filteredExtensionsList += [PSCustomObject]@{
+                Id          = $identifier
+                DisplayName = $displayNameNode
+                Publisher   = $publisher
+                FilePath    = $manifestFile.FullName
+            }
+        }
+    }
+    catch {
+        Write-Host "Error processing file: $($manifestFile.FullName)" -ForegroundColor Yellow
+    }
+}
+
+foreach ($extension in $filteredExtensionsList) {
+    try {
+        if (Test-Path $vsixInstallerPath) {
+            $arguments = ("/q", "/u:$extension.Id")
+
+            Start-Process -FilePath $vsixInstallerPath -ArgumentList $arguments -Wait
+
+        } else {
+            Write-Host "VSIXInstaller.exe not found. Please verify the Visual Studio installation path."
+        }
+    }
+    catch {
+        Write-Host "Error uninstalling the extension:" -ForegroundColor Red
+        Write-Host $extension -ForegroundColor Red
+    }
+}
+
 $bucketName = "windows-dev-env-ec2"
 $folderPath = "artifacts/"
 
-# Get the directory where the PowerShell script file is located
-$localPath = Join-Path $PSScriptRoot "s3-artifacts"
+$localPath = [System.Environment]::GetFolderPath('Desktop')
 
-# Create local directory if it doesn't exist
 if (-not (Test-Path $localPath)) {
     Write-Host "Creating local directory: $localPath"
     New-Item -Path $localPath -ItemType Directory
@@ -74,34 +114,32 @@ if (-not (Test-Path $localPath)) {
     Write-Host "Local directory already exists: $localPath"
 }
 
-# Download files from S3
-aws s3 cp s3://$bucketName/$folderPath $localPath --recursive
+$fileName = "AWSToolkitPackage.vsix"
+$s3Url = "https://$bucketName.s3.amazonaws.com/$folderPath$fileName"
 
-# Silent installation of the VSIX package
-$vsixFilePath = Join-Path $localPath "AWSToolkitPackage.vsix"
+$vsixFilePath = Join-Path $localPath $fileName
 
-if (Test-Path $vsixFilePath) {
-    # Path to Visual Studio 2022 VSIXInstaller.exe
-    $vsixInstallerPath = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VSIXInstaller.exe"
-    
-    # Check if VSIXInstaller.exe exists (adjust path if using a different version of Visual Studio)
-    if (Test-Path $vsixInstallerPath) {
-        # Run silent install of the VSIX package using Start-Process with logging
-        $arguments = @("$vsixFilePath", "/q")
+Write-Host "Downloading $fileName from S3 bucket..."
+Invoke-WebRequest -Uri $s3Url -OutFile $vsixFilePath
 
-        Start-Process -FilePath $vsixInstallerPath -ArgumentList $arguments -Wait -NoNewWindow
+try {
+    if (Test-Path $vsixFilePath) {
+        if (Test-Path $vsixInstallerPath) {
+            $arguments = @("$vsixFilePath", "/q")
 
-        # Check the installation result
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "VSIX package installed successfully."
+            Start-Process -FilePath $vsixInstallerPath -ArgumentList $arguments -Wait
+
         } else {
-            Write-Host "VSIX package installation failed. Exit code: $LASTEXITCODE."
+            Write-Host "VSIXInstaller.exe not found. Please verify the Visual Studio installation path."
         }
     } else {
-        Write-Host "VSIXInstaller.exe not found. Please verify the Visual Studio installation path."
+        Write-Host "VSIX package not found after download."
     }
-} else {
-    Write-Host "VSIX package not found in the downloaded files."
 }
+catch {
+    Write-Host "Error uninstalling the extension:" -ForegroundColor Red
+    Write-Host $extension -ForegroundColor Red
+}
+
 
 Write-Host "OnAfterInit script finished running at $(Get-Date)."
